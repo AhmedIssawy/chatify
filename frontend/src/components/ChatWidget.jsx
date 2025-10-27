@@ -63,13 +63,61 @@ function ChatWidget() {
     }
   };
 
-  // Handle opening the widget
-  const handleOpenWidget = () => {
+  // Handle opening the widget with smart admin selection
+  const handleOpenWidget = async () => {
     setIsOpen(true);
     setHasNewMessage(false); // Clear notification badge
-    if (!selectedUser) {
-      setShowUserList(true);
-      fetchUsers();
+    
+    // Only auto-select for non-admin users
+    if (!isAdmin && !selectedUser) {
+      setIsLoadingUsers(true);
+      
+      try {
+        // Check if there's a last contacted admin in localStorage
+        const lastAdminId = localStorage.getItem('lastAdminId');
+        
+        // Fetch available admins
+        const res = await axiosInstance.get("/messages/avail-admin");
+        const availableAdmins = res.data.filter((user) => user._id !== authUser._id);
+        setUsers(availableAdmins);
+        
+        let adminToSelect = null;
+        
+        // Try to reconnect with last contacted admin first
+        if (lastAdminId) {
+          adminToSelect = availableAdmins.find(admin => admin._id === lastAdminId);
+        }
+        
+        // If last admin not found or doesn't exist, find first online admin
+        if (!adminToSelect) {
+          adminToSelect = availableAdmins.find(admin => onlineUsers.includes(admin._id));
+        }
+        
+        if (adminToSelect) {
+          // Save this admin as last contacted
+          localStorage.setItem('lastAdminId', adminToSelect._id);
+          
+          setSelectedUser(adminToSelect);
+          setShowUserList(false);
+          getMessagesByUserId(adminToSelect._id);
+          subscribeToMessages();
+        } else {
+          // No online admins available - show waiting message
+          setShowUserList(false);
+          setSelectedUser(null);
+        }
+      } catch (error) {
+        toast.error("Failed to load admins");
+        setShowUserList(true);
+      } finally {
+        setIsLoadingUsers(false);
+      }
+    } else {
+      // For admin users or if user already selected, show user list
+      if (!selectedUser) {
+        setShowUserList(true);
+        fetchUsers();
+      }
     }
   };
 
@@ -79,6 +127,11 @@ function ChatWidget() {
     setShowUserList(false);
     getMessagesByUserId(user._id);
     subscribeToMessages();
+    
+    // Save as last contacted admin for non-admin users
+    if (!isAdmin) {
+      localStorage.setItem('lastAdminId', user._id);
+    }
   };
 
   // Handle closing the widget
@@ -165,6 +218,11 @@ function ChatWidget() {
             setShowUserList(false);
             getMessagesByUserId(sender._id);
             subscribeToMessages();
+            
+            // Save as last contacted admin for non-admin users
+            if (!isAdmin) {
+              localStorage.setItem('lastAdminId', sender._id);
+            }
             
             // Show toast notification
             toast.success(`New message from ${sender.fullName}!`, {
@@ -348,10 +406,55 @@ function ChatWidget() {
           )}
 
           {/* Chat View */}
-          {selectedUser && !showUserList && (
+          {!showUserList && (
             <>
-              {/* Messages Area */}
-              <div className="flex-1 overflow-y-auto p-4 bg-slate-50 dark:bg-slate-800 space-y-4">
+              {/* No Active Admins Message (for non-admin users) */}
+              {!isAdmin && !selectedUser && !isLoadingUsers && (
+                <div className="flex-1 flex items-center justify-center p-6 bg-slate-50 dark:bg-slate-800 animate-fade-in">
+                  <div className="max-w-md text-center">
+                    <div className="w-20 h-20 bg-slate-200 dark:bg-slate-700 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <MessageCircle className="w-10 h-10 text-slate-400 dark:text-slate-500" />
+                    </div>
+                    <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-200 mb-3">
+                      No Active Admins Right Now
+                    </h3>
+                    <p className="text-slate-600 dark:text-slate-400 text-sm leading-relaxed mb-4">
+                      There are no active admins right now. You've been added to our waiting list. 
+                      Once an admin becomes available, we'll send you an email at{" "}
+                      <span className="font-medium text-cyan-600 dark:text-cyan-400">
+                        {authUser?.email}
+                      </span>
+                      .
+                    </p>
+                    <button
+                      onClick={() => {
+                        setShowUserList(true);
+                        fetchUsers();
+                      }}
+                      className="mt-4 px-6 py-2 bg-gradient-to-r from-cyan-500 to-blue-600 text-white rounded-full text-sm font-medium hover:shadow-lg transition-all"
+                    >
+                      View All Admins
+                    </button>
+                  </div>
+                </div>
+              )}
+              
+              {/* Loading State */}
+              {isLoadingUsers && !selectedUser && (
+                <div className="flex-1 flex items-center justify-center p-6 bg-slate-50 dark:bg-slate-800">
+                  <div className="text-center">
+                    <div className="w-12 h-12 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
+                    <p className="text-slate-600 dark:text-slate-400 text-sm">
+                      Connecting you with an admin...
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Messages Area - Only show when user is selected */}
+              {selectedUser && (
+                <>
+                  <div className="flex-1 overflow-y-auto p-4 bg-slate-50 dark:bg-slate-800 space-y-4">
                 {messages.length === 0 ? (
                   <div className="text-center py-12">
                     <div className="text-4xl mb-3">👋</div>
@@ -457,6 +560,8 @@ function ChatWidget() {
                   </button>
                 </div>
               </form>
+                </>
+              )}
             </>
           )}
         </div>

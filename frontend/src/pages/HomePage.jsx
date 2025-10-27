@@ -91,7 +91,7 @@ function HomePage() {
       <div className="max-w-7xl mx-auto px-4 py-16">
         <div className="text-center">
           <h1 className="text-5xl md:text-6xl font-bold text-slate-800 dark:text-slate-100 mb-4">
-            Welcome to Chatify
+            Welcome To IT Chat
           </h1>
           <p className="text-xl text-slate-600 dark:text-slate-400 max-w-2xl mx-auto">
             Your modern chat support platform. Connect with our support team anytime, anywhere.

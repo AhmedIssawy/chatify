@@ -15,12 +15,12 @@ function ActiveTabSwitch() {
       </button>
 
       <button
-        onClick={() => setActiveTab("contacts")}
+        onClick={() => setActiveTab("users")}
         className={`tab ${
-          activeTab === "contacts" ? "bg-cyan-500/20 text-cyan-400" : "text-slate-400"
+          activeTab === "users" ? "bg-cyan-500/20 text-cyan-400" : "text-slate-400"
         }`}
       >
-        Contacts
+        Users
       </button>
     </div>
   );

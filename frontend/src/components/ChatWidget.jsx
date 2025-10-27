@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { MessageCircle, X, Send, Paperclip, Minimize2 } from "lucide-react";
+import { MessageCircle, X, Send, Paperclip, Minimize2, Trash2, AlertTriangle } from "lucide-react";
 import { useAuthStore } from "../store/useAuthStore";
 import { useChatStore } from "../store/useChatStore";
 import { axiosInstance } from "../lib/axios";
@@ -24,6 +24,7 @@ function ChatWidget() {
   const [messageText, setMessageText] = useState("");
   const [imagePreview, setImagePreview] = useState(null);
   const [hasNewMessage, setHasNewMessage] = useState(false);
+  const [terminationNotification, setTerminationNotification] = useState(null);
   const messageEndRef = useRef(null);
   const fileInputRef = useRef(null);
   const messageInputRef = useRef(null);
@@ -148,6 +149,71 @@ function ChatWidget() {
     fetchUsers();
   };
 
+  // Handle admin leaving chat with a user
+  const handleAdminLeaveChat = () => {
+    if (!isAdmin || !selectedUser) return;
+
+    const confirmLeave = window.confirm(
+      `Are you sure you want to permanently delete all messages with ${selectedUser.fullName}? This action cannot be undone.`
+    );
+    
+    if (!confirmLeave) return;
+
+    const { socket } = useAuthStore.getState();
+    if (socket) {
+      socket.emit("adminLeavingChat", { userId: selectedUser._id });
+      
+      // Handle response
+      socket.once("chatDeleted", (data) => {
+        if (data.success) {
+          toast.success(`Chat with ${selectedUser.fullName} has been permanently deleted.`, {
+            icon: "🗑️",
+            duration: 3000,
+          });
+          // Go back to user list
+          handleBackToList();
+        } else {
+          toast.error("Failed to delete chat. Please try again.");
+        }
+      });
+    }
+  };
+
+  // Handle admin terminating all chats
+  const handleTerminateAllChats = () => {
+    if (!isAdmin) return;
+
+    const confirmTerminate = window.confirm(
+      "Are you sure you want to permanently delete ALL your chats? This action cannot be undone."
+    );
+    
+    if (!confirmTerminate) return;
+
+    const { socket } = useAuthStore.getState();
+    if (socket) {
+      socket.emit("terminateAllChats");
+      
+      // Handle response
+      socket.once("allChatsTerminated", (data) => {
+        if (data.success) {
+          toast.success(
+            `Successfully deleted ${data.deletedCount} messages from ${data.affectedUsers} chat(s).`,
+            {
+              icon: "🗑️",
+              duration: 4000,
+            }
+          );
+          // Reset state
+          setSelectedUser(null);
+          setShowUserList(true);
+          fetchUsers();
+        } else {
+          toast.error("Failed to terminate chats. Please try again.");
+        }
+      });
+    }
+  };
+
   // Handle sending message
   const handleSendMessage = async (e) => {
     e.preventDefault();
@@ -245,6 +311,61 @@ function ChatWidget() {
     };
   }, [isOpen, authUser, isAdmin, getMessagesByUserId, subscribeToMessages, setSelectedUser]);
 
+  // Handle chat permanently deleted by admin
+  useEffect(() => {
+    const { socket } = useAuthStore.getState();
+    if (!socket || isAdmin) return; // Only non-admin users need this
+
+    const handleChatDeleted = (data) => {
+      const { adminId, adminName, reason, deletedCount } = data;
+      
+      console.log("Chat permanently deleted:", data);
+
+      // If currently chatting with this admin, close the chat
+      if (selectedUser && selectedUser._id === adminId) {
+        setSelectedUser(null);
+        setShowUserList(true);
+        unsubscribeFromMessages();
+      }
+
+      // Show termination notification modal
+      setTerminationNotification({
+        adminId,
+        adminName,
+        reason,
+        deletedCount,
+        timestamp: new Date().toISOString(),
+      });
+
+      // Also show a toast notification
+      const message = reason === "admin_disconnected" 
+        ? `⚡ Chat Auto-Terminated - ${adminName} went offline`
+        : `${adminName} ended the chat`;
+      
+      toast.error(message, {
+        duration: 5000,
+        icon: "🗑️",
+      });
+
+      // Remove this admin from last contacted
+      const lastAdminId = localStorage.getItem('lastAdminId');
+      if (lastAdminId === adminId) {
+        localStorage.removeItem('lastAdminId');
+      }
+
+      // Auto-close notification after 10 seconds
+      setTimeout(() => {
+        setTerminationNotification(null);
+      }, 10000);
+    };
+
+    socket.on("chatPermanentlyDeleted", handleChatDeleted);
+
+    return () => {
+      socket.off("chatPermanentlyDeleted", handleChatDeleted);
+    };
+  }, [isAdmin, selectedUser, setSelectedUser, unsubscribeFromMessages]);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -321,6 +442,29 @@ function ChatWidget() {
               </div>
             </div>
             <div className="flex items-center gap-2">
+              {/* Admin Delete Chat Button (only show when chatting with a user) */}
+              {isAdmin && selectedUser && (
+                <button
+                  onClick={handleAdminLeaveChat}
+                  className="hover:bg-red-500/20 rounded-full p-2 transition-colors"
+                  title="Delete this chat permanently"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              )}
+              
+              {/* Admin Terminate All Button (only show in list view) */}
+              {isAdmin && !selectedUser && (
+                <button
+                  onClick={handleTerminateAllChats}
+                  className="hover:bg-red-500/20 rounded-full p-2 transition-colors flex items-center gap-1"
+                  title="Delete all chats permanently"
+                >
+                  <AlertTriangle className="w-4 h-4" />
+                  <span className="text-xs hidden sm:inline">Delete All</span>
+                </button>
+              )}
+              
               <button
                 onClick={handleClose}
                 className="hover:bg-white/20 rounded-full p-2 transition-colors"
@@ -567,6 +711,108 @@ function ChatWidget() {
         </div>
       )}
 
+      {/* Chat Termination Notification Modal */}
+      {terminationNotification && (
+        <div className="fixed bottom-0 right-0 md:bottom-6 md:right-6 w-full md:w-[400px] h-[100vh] md:h-[600px] z-[100] flex items-center justify-center p-4">
+          {/* Backdrop */}
+          <div 
+            className="absolute inset-0 bg-black/80 backdrop-blur-sm md:rounded-2xl"
+            onClick={() => setTerminationNotification(null)}
+          />
+          
+          {/* Modal Content */}
+          <div className="relative bg-gradient-to-br from-red-500 via-red-600 to-orange-600 rounded-2xl shadow-2xl w-full p-6 animate-scale-in max-h-[90%] overflow-y-auto">
+            {/* Close Button */}
+            <button
+              onClick={() => setTerminationNotification(null)}
+              className="absolute top-3 right-3 text-white/80 hover:text-white transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            {/* Icon */}
+            <div className="flex justify-center mb-4">
+              <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center backdrop-blur-sm animate-pulse-slow">
+                <AlertTriangle className="w-10 h-10 text-white" />
+              </div>
+            </div>
+
+            {/* Title */}
+            <h2 className="text-2xl font-bold text-white text-center mb-3">
+              Chat Session Ended
+            </h2>
+
+            {/* Message */}
+            <div className="bg-white/10 backdrop-blur-sm rounded-xl p-4 mb-4 border border-white/20">
+              <p className="text-white text-center text-sm leading-relaxed">
+                {terminationNotification.reason === "admin_disconnected" ? (
+                  <>
+                    <span className="block text-xl font-bold mb-2 text-yellow-200">⚡ AUTO-TERMINATED</span>
+                    Your conversation with <span className="font-semibold">{terminationNotification.adminName}</span> has 
+                    been automatically terminated. The admin went offline and all{" "}
+                    <span className="font-semibold">{terminationNotification.deletedCount}</span> message
+                    {terminationNotification.deletedCount !== 1 ? "s" : ""} have been permanently deleted.
+                  </>
+                ) : (
+                  <>
+                    <span className="block text-xl font-bold mb-2 text-yellow-200">✋ CHAT ENDED</span>
+                    <span className="font-semibold">{terminationNotification.adminName}</span> has ended the conversation. 
+                    All <span className="font-semibold">{terminationNotification.deletedCount}</span> message
+                    {terminationNotification.deletedCount !== 1 ? "s" : ""} have been permanently deleted.
+                  </>
+                )}
+              </p>
+            </div>
+
+            {/* Info Cards */}
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              <div className="bg-white/10 backdrop-blur-sm rounded-lg p-3 border border-white/20">
+                <div className="flex items-center gap-2 mb-1">
+                  <Trash2 className="w-4 h-4 text-white/80" />
+                  <p className="text-white/80 text-xs font-medium">Deleted</p>
+                </div>
+                <p className="text-white text-xl font-bold">{terminationNotification.deletedCount}</p>
+                <p className="text-white/70 text-xs">message{terminationNotification.deletedCount !== 1 ? "s" : ""}</p>
+              </div>
+
+              <div className="bg-white/10 backdrop-blur-sm rounded-lg p-3 border border-white/20">
+                <div className="flex items-center gap-2 mb-1">
+                  <MessageCircle className="w-4 h-4 text-white/80" />
+                  <p className="text-white/80 text-xs font-medium">Status</p>
+                </div>
+                <p className="text-white text-base font-bold">Terminated</p>
+                <p className="text-white/70 text-xs">Permanently</p>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={() => {
+                  setTerminationNotification(null);
+                  setShowUserList(true);
+                  fetchUsers();
+                }}
+                className="w-full bg-white text-red-600 rounded-lg py-2.5 px-4 font-semibold hover:bg-white/90 transition-all shadow-lg text-sm"
+              >
+                Find Another Admin
+              </button>
+              <button
+                onClick={() => setTerminationNotification(null)}
+                className="w-full bg-white/20 backdrop-blur-sm text-white rounded-lg py-2.5 px-4 font-semibold hover:bg-white/30 transition-all border border-white/30 text-sm"
+              >
+                Close
+              </button>
+            </div>
+
+            {/* Timestamp */}
+            <p className="text-white/60 text-xs text-center mt-3">
+              Terminated at {new Date(terminationNotification.timestamp).toLocaleTimeString()}
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Custom Animations */}
       <style jsx>{`
         @keyframes slide-up {
@@ -589,6 +835,26 @@ function ChatWidget() {
           }
         }
 
+        @keyframes scale-in {
+          from {
+            transform: scale(0.9);
+            opacity: 0;
+          }
+          to {
+            transform: scale(1);
+            opacity: 1;
+          }
+        }
+
+        @keyframes pulse-slow {
+          0%, 100% {
+            opacity: 1;
+          }
+          50% {
+            opacity: 0.7;
+          }
+        }
+
         @keyframes bounce-subtle {
           0%,
           100% {
@@ -605,6 +871,14 @@ function ChatWidget() {
 
         .animate-fade-in {
           animation: fade-in 0.3s ease-out;
+        }
+
+        .animate-scale-in {
+          animation: scale-in 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        .animate-pulse-slow {
+          animation: pulse-slow 2s ease-in-out infinite;
         }
 
         .animate-bounce-subtle {

@@ -32,6 +32,10 @@ export const getAvailAdmin = async (req, res) => {
 
 export const permanentlyDeleteChat = async (adminId, userId) => {
   try {
+    console.log(
+      `Starting permanent deletion between admin ${adminId} and user ${userId}`
+    );
+
     // Find all messages between admin and user
     const messages = await Message.find({
       $or: [
@@ -45,6 +49,7 @@ export const permanentlyDeleteChat = async (adminId, userId) => {
       .filter((msg) => msg.image)
       .map((msg) => msg.image);
 
+    let deletedImages = 0;
     // Extract public_ids from Cloudinary URLs and delete them
     for (const imageUrl of imageUrls) {
       try {
@@ -56,6 +61,8 @@ export const permanentlyDeleteChat = async (adminId, userId) => {
 
         if (publicId) {
           await cloudinary.uploader.destroy(publicId);
+          deletedImages++;
+          console.log(`Deleted image from Cloudinary: ${publicId}`);
         }
       } catch (imageError) {
         // Silently continue if image deletion fails
@@ -72,13 +79,13 @@ export const permanentlyDeleteChat = async (adminId, userId) => {
     });
 
     console.log(
-      `Permanently deleted ${deleteResult.deletedCount} messages between admin ${adminId} and user ${userId}`
+      `Permanently deleted ${deleteResult.deletedCount} messages and ${deletedImages} images between admin ${adminId} and user ${userId}`
     );
 
     return {
       success: true,
       deletedCount: deleteResult.deletedCount,
-      deletedImages: imageUrls.length,
+      deletedImages: deletedImages,
     };
   } catch (error) {
     console.error("Error in permanentlyDeleteChat:", error);

@@ -23,6 +23,7 @@ function ChatWidget() {
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
   const [messageText, setMessageText] = useState("");
   const [imagePreview, setImagePreview] = useState(null);
+  const [hasNewMessage, setHasNewMessage] = useState(false);
   const messageEndRef = useRef(null);
   const fileInputRef = useRef(null);
   const messageInputRef = useRef(null);
@@ -65,6 +66,7 @@ function ChatWidget() {
   // Handle opening the widget
   const handleOpenWidget = () => {
     setIsOpen(true);
+    setHasNewMessage(false); // Clear notification badge
     if (!selectedUser) {
       setShowUserList(true);
       fetchUsers();
@@ -134,6 +136,57 @@ function ChatWidget() {
     }
   }, [selectedUser]);
 
+  // Auto-open chat when receiving a new message from another user
+  useEffect(() => {
+    const { socket } = useAuthStore.getState();
+    if (!socket) return;
+
+    const handleIncomingMessage = (newMessage) => {
+      // Only auto-open if:
+      // 1. Message is NOT from the current user
+      // 2. Chat is currently closed
+      if (newMessage.senderId !== authUser?._id && !isOpen) {
+        // Set notification badge
+        setHasNewMessage(true);
+        
+        // Auto-open the chat
+        setIsOpen(true);
+        
+        // Fetch users to get the sender info
+        const endpoint = isAdmin ? "/messages/users" : "/messages/avail-admin";
+        axiosInstance.get(endpoint).then((res) => {
+          const allUsers = res.data.filter((user) => user._id !== authUser._id);
+          setUsers(allUsers);
+          
+          // Find the sender and auto-select them
+          const sender = allUsers.find((u) => u._id === newMessage.senderId);
+          if (sender) {
+            setSelectedUser(sender);
+            setShowUserList(false);
+            getMessagesByUserId(sender._id);
+            subscribeToMessages();
+            
+            // Show toast notification
+            toast.success(`New message from ${sender.fullName}!`, {
+              icon: "💬",
+              duration: 3000,
+            });
+          } else {
+            // If sender not found, show user list
+            setShowUserList(true);
+          }
+        });
+      }
+    };
+
+    // Listen for new messages
+    socket.on("newMessage", handleIncomingMessage);
+
+    return () => {
+      socket.off("newMessage", handleIncomingMessage);
+    };
+  }, [isOpen, authUser, isAdmin, getMessagesByUserId, subscribeToMessages, setSelectedUser]);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -157,11 +210,19 @@ function ChatWidget() {
           {/* Chat Icon Button */}
           <button
             onClick={handleOpenWidget}
-            className="group bg-gradient-to-br from-cyan-500 to-blue-600 text-white rounded-full p-4 shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-110 active:scale-95"
+            className="group bg-gradient-to-br from-cyan-500 to-blue-600 text-white rounded-full p-4 shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-110 active:scale-95 relative"
             aria-label={labels.buttonTooltip}
             title={labels.buttonTooltip}
           >
             <MessageCircle className="w-7 h-7 group-hover:rotate-12 transition-transform" />
+            
+            {/* Notification Badge */}
+            {hasNewMessage && (
+              <span className="absolute -top-1 -right-1 flex h-5 w-5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-5 w-5 bg-red-500 border-2 border-white"></span>
+              </span>
+            )}
           </button>
         </div>
       )}
@@ -434,7 +495,7 @@ function ChatWidget() {
         }
 
         .animate-slide-up {
-          animation: slide-up 0.3s ease-out;
+          animation: slide-up 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
         }
 
         .animate-fade-in {

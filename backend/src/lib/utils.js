@@ -21,5 +21,36 @@ export const generateToken = (userId, res) => {
   return token;
 };
 
+/**
+ * Validates a PEM-encoded RSA public key format.
+ * 
+ * @param {string} publicKeyPem - PEM-encoded public key
+ * @returns {boolean} True if valid format
+ */
+export const validatePublicKeyPem = (publicKeyPem) => {
+  if (typeof publicKeyPem !== "string") {
+    return false;
+  }
+
+  // Check for proper PEM format
+  const pemRegex = /^-----BEGIN PUBLIC KEY-----\n[\s\S]+\n-----END PUBLIC KEY-----$/;
+  
+  if (!pemRegex.test(publicKeyPem.trim())) {
+    return false;
+  }
+
+  // Ensure it's not a private key
+  if (publicKeyPem.includes("PRIVATE KEY")) {
+    return false;
+  }
+
+  // Basic length check (RSA 2048 public key is ~400-450 chars in PEM)
+  if (publicKeyPem.length < 200 || publicKeyPem.length > 2000) {
+    return false;
+  }
+
+  return true;
+};
+
 // http://localhost
 // https://dsmakmk.com

@@ -114,18 +114,49 @@ export const getMessagesByUserId = async (req, res) => {
 
 export const sendMessage = async (req, res) => {
   try {
-    const { text, image } = req.body;
+    const { text, image, messagePayload, isEncrypted = false } = req.body;
     const { id: receiverId } = req.params;
     const senderId = req.user._id;
 
-    if (!text && !image) {
-      return res.status(400).json({ message: "Text or image is required." });
+    // For encrypted messages: only messagePayload is required
+    // For plaintext messages: text or image is required
+    if (isEncrypted) {
+      if (!messagePayload) {
+        return res.status(400).json({
+          message: "messagePayload is required for encrypted messages.",
+        });
+      }
+      
+      // Validate messagePayload structure
+      if (
+        typeof messagePayload !== "object" ||
+        !messagePayload.alg ||
+        !messagePayload.wrappedKey ||
+        !messagePayload.ciphertext ||
+        !messagePayload.iv
+      ) {
+        return res.status(400).json({
+          message: "Invalid messagePayload structure.",
+        });
+      }
+      
+      // SECURITY: Backend should NEVER log or inspect the encrypted payload contents
+      // The backend cannot decrypt it (and should not try)
+    } else {
+      // Plaintext message validation
+      if (!text && !image) {
+        return res.status(400).json({
+          message: "Text or image is required for plaintext messages.",
+        });
+      }
     }
+
     if (senderId.equals(receiverId)) {
       return res
         .status(400)
         .json({ message: "Cannot send messages to yourself." });
     }
+
     const receiverExists = await User.exists({ _id: receiverId });
     if (!receiverExists) {
       return res.status(404).json({ message: "Receiver not found." });
@@ -141,8 +172,10 @@ export const sendMessage = async (req, res) => {
     const newMessage = new Message({
       senderId,
       receiverId,
-      text,
+      text: isEncrypted ? null : text, // Don't store plaintext for encrypted messages
       image: imageUrl,
+      messagePayload: isEncrypted ? messagePayload : null,
+      isEncrypted,
     });
 
     await newMessage.save();

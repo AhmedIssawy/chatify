@@ -24,6 +24,16 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    // End-to-end encryption: store public key for each user
+    publicKeyPem: {
+      type: String,
+      default: "",
+    },
+    // Optional: key ID for key rotation support
+    keyId: {
+      type: String,
+      default: "v1",
+    },
   },
   { timestamps: true } // createdAt & updatedAt
 );

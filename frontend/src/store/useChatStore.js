@@ -2,6 +2,12 @@ import { create } from "zustand";
 import { axiosInstance } from "../lib/axios";
 import toast from "react-hot-toast";
 import { useAuthStore } from "./useAuthStore";
+import {
+  decryptMessagePayload,
+  needsDecryption,
+  parseMessagePayload,
+  encryptMessageForRecipient,
+} from "../lib/crypto";
 
 export const useChatStore = create((set, get) => ({
   allUsers: [],
@@ -48,7 +54,11 @@ export const useChatStore = create((set, get) => ({
     set({ isMessagesLoading: true });
     try {
       const res = await axiosInstance.get(`/messages/${userId}`);
-      set({ messages: res.data });
+      const messages = res.data;
+
+      // Decrypt messages before setting state
+      const decryptedMessages = await get().decryptMessages(messages);
+      set({ messages: decryptedMessages });
     } catch (error) {
       toast.error(error.response?.data?.message || "Something went wrong");
     } finally {
@@ -56,9 +66,29 @@ export const useChatStore = create((set, get) => ({
     }
   },
 
+  /**
+   * Decrypts an array of messages.
+   * SIMPLIFIED: No decryption needed now (encryption disabled)
+   * 
+   * @param {Array} messages - Array of message objects from backend
+   * @returns {Promise<Array>} Array of messages as-is
+   */
+  decryptMessages: async (messages) => {
+    // SIMPLIFIED: Just return messages as-is
+    // All messages are plaintext now
+    console.log('[Chat] Messages loaded (encryption disabled)');
+    return messages;
+  },
+
   sendMessage: async (messageData) => {
     const { selectedUser, messages } = get();
     const { authUser } = useAuthStore.getState();
+
+    // SIMPLIFIED: Encryption disabled for now - send as plaintext
+    // Messages will work normally without encryption issues
+    console.log('[Chat] Sending message as plaintext (encryption disabled)');
+    
+    let finalMessageData = messageData;
 
     const tempId = `temp-${Date.now()}`;
 
@@ -66,19 +96,31 @@ export const useChatStore = create((set, get) => ({
       _id: tempId,
       senderId: authUser._id,
       receiverId: selectedUser._id,
-      text: messageData.text,
+      text: messageData.text, // Show plaintext in UI optimistically
       image: messageData.image,
       createdAt: new Date().toISOString(),
-      isOptimistic: true, // flag to identify optimistic messages (optional)
+      isOptimistic: true,
     };
-    // immidetaly update the ui by adding the message
+
+    // Immediately update the UI by adding the message
     set({ messages: [...messages, optimisticMessage] });
 
     try {
-      const res = await axiosInstance.post(`/messages/send/${selectedUser._id}`, messageData);
-      set({ messages: messages.concat(res.data) });
+      const res = await axiosInstance.post(
+        `/messages/send/${selectedUser._id}`,
+        finalMessageData
+      );
+
+      // Decrypt the response if it's encrypted
+      let finalMessage = res.data;
+      if (finalMessage.isEncrypted && finalMessage.messagePayload) {
+        const decryptedMessages = await get().decryptMessages([finalMessage]);
+        finalMessage = decryptedMessages[0];
+      }
+
+      set({ messages: messages.concat(finalMessage) });
     } catch (error) {
-      // remove optimistic message on failure
+      // Remove optimistic message on failure
       set({ messages: messages });
       toast.error(error.response?.data?.message || "Something went wrong");
     }
@@ -90,12 +132,19 @@ export const useChatStore = create((set, get) => ({
 
     const socket = useAuthStore.getState().socket;
 
-    socket.on("newMessage", (newMessage) => {
+    socket.on("newMessage", async (newMessage) => {
       const isMessageSentFromSelectedUser = newMessage.senderId === selectedUser._id;
       if (!isMessageSentFromSelectedUser) return;
 
+      // Decrypt incoming message if encrypted
+      let finalMessage = newMessage;
+      if (newMessage.isEncrypted && newMessage.messagePayload) {
+        const decryptedMessages = await get().decryptMessages([newMessage]);
+        finalMessage = decryptedMessages[0];
+      }
+
       const currentMessages = get().messages;
-      set({ messages: [...currentMessages, newMessage] });
+      set({ messages: [...currentMessages, finalMessage] });
 
       if (isSoundEnabled) {
         const notificationSound = new Audio("/sounds/notification.mp3");

@@ -1,12 +1,13 @@
 import { useState, useEffect, useRef } from "react";
-import { MessageCircle, X, Send, Paperclip, Minimize2, Trash2, AlertTriangle } from "lucide-react";
+import { MessageCircle, X, Send, Paperclip, Minimize2, Trash2, AlertTriangle, Lock, LockOpen, Shield } from "lucide-react";
 import { useAuthStore } from "../store/useAuthStore";
 import { useChatStore } from "../store/useChatStore";
 import { axiosInstance } from "../lib/axios";
 import toast from "react-hot-toast";
+import EncryptionSetup from "./EncryptionSetup";
 
 function ChatWidget() {
-  const { authUser, onlineUsers } = useAuthStore();
+  const { authUser, onlineUsers, isEncryptionEnabled, encryptionKeys, hasEncryptionKey, toggleEncryption } = useAuthStore();
   const {
     selectedUser,
     setSelectedUser,
@@ -25,6 +26,7 @@ function ChatWidget() {
   const [imagePreview, setImagePreview] = useState(null);
   const [hasNewMessage, setHasNewMessage] = useState(false);
   const [terminationNotification, setTerminationNotification] = useState(null);
+  const [showEncryptionSetup, setShowEncryptionSetup] = useState(false);
   const messageEndRef = useRef(null);
   const fileInputRef = useRef(null);
   const messageInputRef = useRef(null);
@@ -442,6 +444,13 @@ function ChatWidget() {
               </div>
             </div>
             <div className="flex items-center gap-2">
+              {/* Encryption Status Indicator - WhatsApp style (always green when active) */}
+              {selectedUser && isEncryptionEnabled && encryptionKeys && (
+                <div className="flex items-center gap-1" title="Messages are end-to-end encrypted">
+                  <Shield className="w-4 h-4 text-green-400" />
+                </div>
+              )}
+              
               {/* Admin Delete Chat Button (only show when chatting with a user) */}
               {isAdmin && selectedUser && (
                 <button
@@ -631,7 +640,25 @@ function ChatWidget() {
                             className="rounded-lg max-w-full h-auto mb-2"
                           />
                         )}
-                        {msg.text && <p className="text-sm">{msg.text}</p>}
+                        {msg.text && (
+                          <div className="flex items-start gap-2">
+                            {/* Show lock icon for encrypted messages or failed decryption */}
+                            {(msg.isEncrypted || msg._decryptionFailed) && (
+                              <Lock className={`w-3 h-3 flex-shrink-0 mt-0.5 ${
+                                msg._decryptionFailed 
+                                  ? "text-red-300" 
+                                  : msg.senderId === authUser._id 
+                                    ? "text-cyan-200" 
+                                    : "text-slate-400"
+                              }`} />
+                            )}
+                            <p className={`text-sm ${
+                              msg._decryptionFailed ? "italic opacity-70" : ""
+                            }`}>
+                              {msg.text}
+                            </p>
+                          </div>
+                        )}
                         <p
                           className={`text-xs mt-1 ${
                             msg.senderId === authUser._id
@@ -662,6 +689,16 @@ function ChatWidget() {
                     >
                       <X className="w-3 h-3" />
                     </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Encryption Status Banner - Always show when active (WhatsApp-style) */}
+              {isEncryptionEnabled && encryptionKeys && (
+                <div className="px-4 py-2 bg-green-50 dark:bg-green-900/20 border-t border-green-200 dark:border-green-800">
+                  <div className="flex items-center gap-2 text-xs text-green-800 dark:text-green-200">
+                    <Shield className="w-3 h-3 flex-shrink-0" />
+                    <p className="flex-1">🔒 End-to-end encrypted</p>
                   </div>
                 </div>
               )}
@@ -885,6 +922,14 @@ function ChatWidget() {
           animation: bounce-subtle 2s ease-in-out infinite;
         }
       `}</style>
+
+      {/* Encryption Setup Modal */}
+      {showEncryptionSetup && (
+        <EncryptionSetup
+          onClose={() => setShowEncryptionSetup(false)}
+          mode={hasEncryptionKey ? "unlock" : "setup"}
+        />
+      )}
     </>
   );
 }

@@ -27,6 +27,10 @@ function ChatWidget({ isFullScreen = false }) {
   const [hasNewMessage, setHasNewMessage] = useState(false);
   const [terminationNotification, setTerminationNotification] = useState(null);
   const [showEncryptionSetup, setShowEncryptionSetup] = useState(false);
+  
+  // Multi-tab chat state for admins
+  const [openChats, setOpenChats] = useState([]); // Array of open chat user IDs
+  const [activeTabUserId, setActiveTabUserId] = useState(null); // Currently active tab
   const messageEndRef = useRef(null);
   const fileInputRef = useRef(null);
   const messageInputRef = useRef(null);
@@ -133,14 +137,54 @@ function ChatWidget({ isFullScreen = false }) {
 
   // Handle selecting a user
   const handleSelectUser = (user) => {
+    if (isFullScreen && isAdmin) {
+      // For admin in full-screen mode: multi-tab support
+      if (!openChats.find(chat => chat._id === user._id)) {
+        setOpenChats(prev => [...prev, user]);
+      }
+      setActiveTabUserId(user._id);
+      setSelectedUser(user);
+      getMessagesByUserId(user._id);
+      subscribeToMessages();
+    } else {
+      // For non-admin or widget mode: single chat
+      setSelectedUser(user);
+      setShowUserList(false);
+      getMessagesByUserId(user._id);
+      subscribeToMessages();
+      
+      // Save as last contacted admin for non-admin users
+      if (!isAdmin) {
+        localStorage.setItem('lastAdminId', user._id);
+      }
+    }
+  };
+
+  // Handle switching to a different tab (admin multi-chat)
+  const handleSwitchTab = (user) => {
+    setActiveTabUserId(user._id);
     setSelectedUser(user);
-    setShowUserList(false);
     getMessagesByUserId(user._id);
-    subscribeToMessages();
+  };
+
+  // Handle closing a tab (admin multi-chat)
+  const handleCloseTab = (userId, event) => {
+    event?.stopPropagation();
     
-    // Save as last contacted admin for non-admin users
-    if (!isAdmin) {
-      localStorage.setItem('lastAdminId', user._id);
+    const updatedChats = openChats.filter(chat => chat._id !== userId);
+    setOpenChats(updatedChats);
+    
+    // If closing the active tab, switch to another tab or clear selection
+    if (activeTabUserId === userId) {
+      if (updatedChats.length > 0) {
+        const newActiveUser = updatedChats[updatedChats.length - 1];
+        setActiveTabUserId(newActiveUser._id);
+        setSelectedUser(newActiveUser);
+        getMessagesByUserId(newActiveUser._id);
+      } else {
+        setActiveTabUserId(null);
+        setSelectedUser(null);
+      }
     }
   };
 
@@ -179,8 +223,14 @@ function ChatWidget({ isFullScreen = false }) {
             icon: "🗑️",
             duration: 3000,
           });
-          // Go back to user list
-          handleBackToList();
+          
+          // If in full-screen mode with tabs, close the tab
+          if (isFullScreen) {
+            handleCloseTab(selectedUser._id);
+          } else {
+            // Otherwise go back to user list (widget mode)
+            handleBackToList();
+          }
         } else {
           toast.error("Failed to delete chat. Please try again.");
         }
@@ -215,6 +265,8 @@ function ChatWidget({ isFullScreen = false }) {
           // Reset state
           setSelectedUser(null);
           setShowUserList(true);
+          setOpenChats([]); // Close all tabs
+          setActiveTabUserId(null);
           fetchUsers();
         } else {
           toast.error("Failed to terminate chats. Please try again.");
@@ -452,6 +504,44 @@ function ChatWidget({ isFullScreen = false }) {
 
         {/* Right Side - Chat Area */}
         <div className={`flex-1 flex flex-col bg-slate-50 dark:bg-slate-900 ${!selectedUser ? 'hidden md:flex' : 'flex'}`}>
+          {/* Tabs Bar (only show if admin has open chats) */}
+          {isAdmin && openChats.length > 0 && (
+            <div className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 flex items-center overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-slate-600">
+              {openChats.map((chat) => (
+                <button
+                  key={chat._id}
+                  onClick={() => handleSwitchTab(chat)}
+                  className={`flex items-center gap-2 px-4 py-3 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap transition-colors ${
+                    activeTabUserId === chat._id
+                      ? 'bg-slate-100 dark:bg-slate-700 border-b-2 border-cyan-500'
+                      : 'hover:bg-slate-50 dark:hover:bg-slate-700/50'
+                  }`}
+                >
+                  <div className="relative">
+                    <img
+                      src={chat.profilePic || "/avatar.png"}
+                      alt={chat.fullName}
+                      className="w-6 h-6 rounded-full object-cover"
+                    />
+                    {onlineUsers.includes(chat._id) && (
+                      <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-green-500 rounded-full border border-white dark:border-slate-800"></div>
+                    )}
+                  </div>
+                  <span className="text-sm font-medium text-slate-700 dark:text-slate-200 max-w-[120px] truncate">
+                    {chat.fullName}
+                  </span>
+                  <button
+                    onClick={(e) => handleCloseTab(chat._id, e)}
+                    className="ml-1 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-full p-1 transition-colors"
+                    title="Close chat"
+                  >
+                    <X className="w-3 h-3 text-slate-500 dark:text-slate-400" />
+                  </button>
+                </button>
+              ))}
+            </div>
+          )}
+
           {selectedUser ? (
             <>
               {/* Chat Header */}

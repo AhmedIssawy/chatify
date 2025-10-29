@@ -1,10 +1,13 @@
 import { useState, useEffect, useRef } from "react";
-import { MessageCircle, X, Send, Paperclip, Minimize2, Trash2, AlertTriangle, Lock, LockOpen, Shield } from "lucide-react";
+import { MessageCircle, X, Send, Paperclip, Minimize2, Trash2, AlertTriangle, Lock, LockOpen, Shield, Users, Settings, Plus } from "lucide-react";
 import { useAuthStore } from "../store/useAuthStore";
 import { useChatStore } from "../store/useChatStore";
+import { useGroupStore } from "../store/useGroupStore";
 import { axiosInstance } from "../lib/axios";
 import toast from "react-hot-toast";
 import EncryptionSetup from "./EncryptionSetup";
+import CreateGroupModal from "./CreateGroupModal";
+import GroupSettingsModal from "./GroupSettingsModal";
 
 function ChatWidget({ isFullScreen = false }) {
   const { authUser, onlineUsers, isEncryptionEnabled, encryptionKeys, hasEncryptionKey, toggleEncryption } = useAuthStore();
@@ -17,6 +20,19 @@ function ChatWidget({ isFullScreen = false }) {
     subscribeToMessages,
     unsubscribeFromMessages,
   } = useChatStore();
+
+  const {
+    groups,
+    selectedGroup,
+    setSelectedGroup,
+    groupMessages,
+    getAllGroups,
+    getUserGroups,
+    getGroupMessages,
+    sendGroupMessage,
+    subscribeToGroupMessages,
+    unsubscribeFromGroupMessages,
+  } = useGroupStore();
 
   const [isOpen, setIsOpen] = useState(isFullScreen); // Auto-open for full screen mode
   const [showUserList, setShowUserList] = useState(isFullScreen); // Show user list by default in full screen
@@ -31,6 +47,11 @@ function ChatWidget({ isFullScreen = false }) {
   // Multi-tab chat state for admins
   const [openChats, setOpenChats] = useState([]); // Array of open chat user IDs
   const [activeTabUserId, setActiveTabUserId] = useState(null); // Currently active tab
+  
+  // Group state
+  const [showCreateGroupModal, setShowCreateGroupModal] = useState(false);
+  const [showGroupSettingsModal, setShowGroupSettingsModal] = useState(false);
+  const [chatMode, setChatMode] = useState("users"); // "users" or "groups"
   const messageEndRef = useRef(null);
   const fileInputRef = useRef(null);
   const messageInputRef = useRef(null);
@@ -44,6 +65,17 @@ function ChatWidget({ isFullScreen = false }) {
       fetchUsers();
     }
   }, [isFullScreen, isAdmin]);
+
+  // Load groups when switching to groups mode
+  useEffect(() => {
+    if (isFullScreen && chatMode === "groups") {
+      if (isAdmin) {
+        getAllGroups();
+      } else {
+        getUserGroups();
+      }
+    }
+  }, [chatMode, isFullScreen, isAdmin]);
   const labels = {
     promptBubble: isAdmin
       ? "Want to reach out to users? Click the chat button to start a conversation."
@@ -285,7 +317,12 @@ function ChatWidget({ isFullScreen = false }) {
       image: imagePreview,
     };
 
-    await sendMessage(messageData);
+    if (selectedUser) {
+      await sendMessage(messageData);
+    } else if (selectedGroup) {
+      await sendGroupMessage(selectedGroup._id, messageData);
+    }
+    
     setMessageText("");
     setImagePreview(null);
   };
@@ -439,73 +476,200 @@ function ChatWidget({ isFullScreen = false }) {
   // Full screen mode for admin (WhatsApp-style)
   if (isFullScreen) {
     return (
+      <>
       <div className="flex w-full h-full">
         {/* Left Sidebar - User List (WhatsApp style) */}
-        <div className={`w-full md:w-96 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 flex flex-col ${selectedUser ? 'hidden md:flex' : 'flex'}`}>
+        <div className={`w-full md:w-96 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 flex flex-col ${(selectedUser || selectedGroup) ? 'hidden md:flex' : 'flex'}`}>
           {/* Sidebar Header */}
           <div className="p-4 border-b border-slate-200 dark:border-slate-700">
-            <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">
-              Chats
-            </h2>
-            <p className="text-sm text-slate-500 dark:text-slate-400">
-              Select a user to start chatting
-            </p>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">
+                Chats
+              </h2>
+              {isAdmin && chatMode === "groups" && (
+                <button
+                  onClick={() => setShowCreateGroupModal(true)}
+                  className="p-2 bg-cyan-500 text-white rounded-lg hover:bg-cyan-600 transition-colors"
+                  title="Create group"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+            
+            {/* Tabs */}
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  setChatMode("users");
+                  setSelectedGroup(null);
+                  fetchUsers();
+                }}
+                className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  chatMode === "users"
+                    ? "bg-cyan-500 text-white"
+                    : "bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600"
+                }`}
+              >
+                Users
+              </button>
+              <button
+                onClick={() => {
+                  setChatMode("groups");
+                  setSelectedUser(null);
+                  // Admins see all groups, users see only their groups
+                  if (isAdmin) {
+                    getAllGroups();
+                  } else {
+                    getUserGroups();
+                  }
+                }}
+                className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2 ${
+                  chatMode === "groups"
+                    ? "bg-cyan-500 text-white"
+                    : "bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600"
+                }`}
+              >
+                <Users className="w-4 h-4" />
+                Groups
+              </button>
+            </div>
           </div>
 
-          {/* User List */}
+          {/* User/Group List */}
           <div className="flex-1 overflow-y-auto">
-            {isLoadingUsers ? (
-              <div className="flex justify-center items-center h-32">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-500"></div>
-              </div>
-            ) : users.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-32 text-slate-500 dark:text-slate-400">
-                <p className="text-sm">{labels.emptyList}</p>
-              </div>
-            ) : (
-              <div className="divide-y divide-slate-100 dark:divide-slate-700">
-                {users.map((user) => (
-                  <button
-                    key={user._id}
-                    onClick={() => handleSelectUser(user)}
-                    className={`w-full p-4 flex items-center gap-3 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors text-left ${
-                      selectedUser?._id === user._id ? 'bg-slate-100 dark:bg-slate-700' : ''
-                    }`}
-                  >
-                    <div className="relative">
-                      <img
-                        src={user.profilePic || "/avatar.png"}
-                        alt={user.fullName}
-                        className="w-12 h-12 rounded-full object-cover"
-                      />
+            {chatMode === "users" ? (
+              // Users List
+              isLoadingUsers ? (
+                <div className="flex justify-center items-center h-32">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-500"></div>
+                </div>
+              ) : users.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-32 text-slate-500 dark:text-slate-400">
+                  <p className="text-sm">{labels.emptyList}</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-100 dark:divide-slate-700">
+                  {users.map((user) => (
+                    <button
+                      key={user._id}
+                      onClick={() => handleSelectUser(user)}
+                      className={`w-full p-4 flex items-center gap-3 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors text-left ${
+                        selectedUser?._id === user._id ? 'bg-slate-100 dark:bg-slate-700' : ''
+                      }`}
+                    >
+                      <div className="relative">
+                        <img
+                          src={user.profilePic || "/avatar.png"}
+                          alt={user.fullName}
+                          className="w-12 h-12 rounded-full object-cover"
+                        />
+                        {onlineUsers.includes(user._id) && (
+                          <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-white dark:border-slate-800"></div>
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-slate-800 dark:text-slate-100 truncate">
+                          {user.fullName}
+                        </p>
+                        <p className="text-sm text-slate-500 dark:text-slate-400 truncate">
+                          {user.email}
+                        </p>
+                      </div>
                       {onlineUsers.includes(user._id) && (
-                        <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-white dark:border-slate-800"></div>
+                        <span className="text-xs text-green-600 dark:text-green-400 font-medium">
+                          Online
+                        </span>
                       )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-slate-800 dark:text-slate-100 truncate">
-                        {user.fullName}
-                      </p>
-                      <p className="text-sm text-slate-500 dark:text-slate-400 truncate">
-                        {user.email}
-                      </p>
-                    </div>
-                    {onlineUsers.includes(user._id) && (
-                      <span className="text-xs text-green-600 dark:text-green-400 font-medium">
-                        Online
-                      </span>
-                    )}
-                  </button>
-                ))}
-              </div>
+                    </button>
+                  ))}
+                </div>
+              )
+            ) : (
+              // Groups List
+              groups.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-32 text-slate-500 dark:text-slate-400">
+                  <Users className="w-12 h-12 mb-2 opacity-50" />
+                  <p className="text-sm">No groups yet</p>
+                  {isAdmin && (
+                    <button
+                      onClick={() => setShowCreateGroupModal(true)}
+                      className="mt-3 px-4 py-2 bg-cyan-500 text-white rounded-lg hover:bg-cyan-600 transition-colors text-sm"
+                    >
+                      Create your first group
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-100 dark:divide-slate-700">
+                  {groups.map((group) => (
+                    <button
+                      key={group._id}
+                      onClick={() => {
+                        setSelectedGroup(group);
+                        setSelectedUser(null);
+                        getGroupMessages(group._id);
+                        subscribeToGroupMessages();
+                      }}
+                      className={`w-full p-4 flex items-center gap-3 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors text-left relative ${
+                        selectedGroup?._id === group._id ? 'bg-slate-100 dark:bg-slate-700' : ''
+                      }`}
+                    >
+                      {/* Group indicator badge */}
+                      <div className="absolute top-2 right-2">
+                        <div className="flex items-center gap-1 px-2 py-0.5 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full">
+                          <Users className="w-3 h-3 text-white" />
+                          <span className="text-[10px] text-white font-bold">GROUP</span>
+                        </div>
+                      </div>
+                      
+                      <div className="relative">
+                        <div className="w-12 h-12 rounded-full overflow-hidden bg-gradient-to-br from-purple-100 to-pink-100 dark:from-purple-900/30 dark:to-pink-900/30 flex items-center justify-center border-2 border-purple-300 dark:border-purple-700">
+                          {group.groupPic ? (
+                            <img
+                              src={group.groupPic}
+                              alt={group.name}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <Users className="w-6 h-6 text-purple-600 dark:text-purple-400" />
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex-1 min-w-0 pr-16">
+                        <p className="font-medium text-slate-800 dark:text-slate-100 truncate flex items-center gap-2">
+                          {group.name}
+                        </p>
+                        <p className="text-sm text-slate-500 dark:text-slate-400 truncate flex items-center gap-1">
+                          <Users className="w-3 h-3" />
+                          {group.members.length} members
+                        </p>
+                      </div>
+                      {isAdmin && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedGroup(group);
+                            setShowGroupSettingsModal(true);
+                          }}
+                          className="absolute bottom-2 right-2 p-1.5 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-lg transition-colors"
+                          title="Group settings"
+                        >
+                          <Settings className="w-3.5 h-3.5 text-slate-500" />
+                        </button>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )
             )}
           </div>
         </div>
 
         {/* Right Side - Chat Area */}
-        <div className={`flex-1 flex flex-col bg-slate-50 dark:bg-slate-900 ${!selectedUser ? 'hidden md:flex' : 'flex'}`}>
+        <div className={`flex-1 flex flex-col bg-slate-50 dark:bg-slate-900 ${(!selectedUser && !selectedGroup) ? 'hidden md:flex' : 'flex'}`}>
           {/* Tabs Bar (only show if admin has open chats) */}
-          {isAdmin && openChats.length > 0 && (
+          {isAdmin && openChats.length > 0 && chatMode === "users" && (
             <div className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 flex items-center overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-slate-600">
               {openChats.map((chat) => (
                 <button
@@ -542,38 +706,78 @@ function ChatWidget({ isFullScreen = false }) {
             </div>
           )}
 
-          {selectedUser ? (
+          {selectedUser || selectedGroup ? (
             <>
               {/* Chat Header */}
               <div className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 p-4 flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <button
-                    onClick={() => setSelectedUser(null)}
+                    onClick={() => {
+                      setSelectedUser(null);
+                      setSelectedGroup(null);
+                    }}
                     className="md:hidden hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full p-2 transition-colors"
                     title="Back to list"
                   >
                     <X className="w-5 h-5 rotate-45" />
                   </button>
-                  <img
-                    src={selectedUser.profilePic || "/avatar.png"}
-                    alt={selectedUser.fullName}
-                    className="w-10 h-10 rounded-full object-cover"
-                  />
-                  <div>
-                    <h3 className="font-semibold text-slate-800 dark:text-slate-100">
-                      {selectedUser.fullName}
-                    </h3>
-                    <div className="flex items-center gap-2">
-                      <div
-                        className={`w-2 h-2 rounded-full ${
-                          onlineUsers.includes(selectedUser._id) ? "bg-green-500" : "bg-gray-400"
-                        }`}
+                  
+                  {selectedUser ? (
+                    <>
+                      <img
+                        src={selectedUser.profilePic || "/avatar.png"}
+                        alt={selectedUser.fullName}
+                        className="w-10 h-10 rounded-full object-cover"
                       />
-                      <p className="text-xs text-slate-500 dark:text-slate-400">
-                        {onlineUsers.includes(selectedUser._id) ? "Online" : "Offline"}
-                      </p>
-                    </div>
-                  </div>
+                      <div>
+                        <h3 className="font-semibold text-slate-800 dark:text-slate-100">
+                          {selectedUser.fullName}
+                        </h3>
+                        <div className="flex items-center gap-2">
+                          <div
+                            className={`w-2 h-2 rounded-full ${
+                              onlineUsers.includes(selectedUser._id) ? "bg-green-500" : "bg-gray-400"
+                            }`}
+                          />
+                          <p className="text-xs text-slate-500 dark:text-slate-400">
+                            {onlineUsers.includes(selectedUser._id) ? "Online" : "Offline"}
+                          </p>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="relative">
+                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-100 to-pink-100 dark:from-purple-900/30 dark:to-pink-900/30 flex items-center justify-center border-2 border-purple-300 dark:border-purple-700">
+                          {selectedGroup.groupPic ? (
+                            <img
+                              src={selectedGroup.groupPic}
+                              alt={selectedGroup.name}
+                              className="w-full h-full object-cover rounded-full"
+                            />
+                          ) : (
+                            <Users className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+                          )}
+                        </div>
+                        {/* Group badge on avatar */}
+                        <div className="absolute -bottom-1 -right-1 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full p-0.5">
+                          <Users className="w-2.5 h-2.5 text-white" />
+                        </div>
+                      </div>
+                      <div>
+                        <h3 className="font-semibold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                          {selectedGroup.name}
+                          <span className="px-2 py-0.5 bg-gradient-to-r from-purple-500 to-pink-500 text-white text-[10px] font-bold rounded-full">
+                            GROUP
+                          </span>
+                        </h3>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                          <Users className="w-3 h-3" />
+                          {selectedGroup.members.length} members
+                        </p>
+                      </div>
+                    </>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   {isAdmin && selectedUser && (
@@ -585,61 +789,83 @@ function ChatWidget({ isFullScreen = false }) {
                       <Trash2 className="w-5 h-5" />
                     </button>
                   )}
+                  {isAdmin && selectedGroup && (
+                    <button
+                      onClick={() => setShowGroupSettingsModal(true)}
+                      className="hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full p-2 transition-colors text-slate-600 dark:text-slate-400"
+                      title="Group settings"
+                    >
+                      <Settings className="w-5 h-5" />
+                    </button>
+                  )}
                 </div>
               </div>
 
               {/* Messages Area */}
               <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                {messages.length === 0 ? (
+                {(selectedUser ? messages : groupMessages).length === 0 ? (
                   <div className="text-center py-12">
                     <div className="text-4xl mb-3">👋</div>
                     <p className="text-slate-700 dark:text-slate-300 font-semibold mb-2">
                       No messages yet
                     </p>
                     <p className="text-slate-500 dark:text-slate-400 text-sm">
-                      Start a conversation with {selectedUser.fullName}
+                      {selectedUser 
+                        ? `Start a conversation with ${selectedUser.fullName}`
+                        : `Start chatting in ${selectedGroup.name}`
+                      }
                     </p>
                   </div>
                 ) : (
-                  messages.map((msg) => (
-                    <div
-                      key={msg._id}
-                      className={`flex ${
-                        msg.senderId === authUser._id ? "justify-end" : "justify-start"
-                      }`}
-                    >
+                  (selectedUser ? messages : groupMessages).map((msg) => {
+                    const isOwnMessage = (msg.senderId?._id || msg.senderId) === authUser._id;
+                    const senderName = msg.senderId?.fullName || "Unknown";
+                    
+                    return (
                       <div
-                        className={`max-w-[75%] rounded-2xl px-4 py-2 ${
-                          msg.senderId === authUser._id
-                            ? "bg-gradient-to-br from-cyan-500 to-blue-600 text-white rounded-br-sm"
-                            : "bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-bl-sm shadow-sm"
-                        }`}
+                        key={msg._id}
+                        className={`flex ${isOwnMessage ? "justify-end" : "justify-start"}`}
                       >
-                        {msg.image && (
-                          <img
-                            src={msg.image}
-                            alt="Shared"
-                            className="rounded-lg max-w-full h-auto mb-2"
-                          />
-                        )}
-                        {msg.text && (
-                          <p className="text-sm">{msg.text}</p>
-                        )}
-                        <p
-                          className={`text-xs mt-1 ${
-                            msg.senderId === authUser._id
-                              ? "text-cyan-100"
-                              : "text-slate-400 dark:text-slate-500"
+                        <div
+                          className={`max-w-[75%] rounded-2xl px-4 py-2 ${
+                            isOwnMessage
+                              ? "bg-gradient-to-br from-cyan-500 to-blue-600 text-white rounded-br-sm"
+                              : "bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-bl-sm shadow-sm"
                           }`}
                         >
-                          {new Date(msg.createdAt).toLocaleTimeString(undefined, {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </p>
+                          {/* Show sender name for group messages (not own messages) */}
+                          {selectedGroup && !isOwnMessage && (
+                            <p className="text-xs font-semibold text-cyan-600 dark:text-cyan-400 mb-1">
+                              {senderName}
+                            </p>
+                          )}
+                          
+                          {msg.image && (
+                            <img
+                              src={msg.image}
+                              alt="Shared"
+                              className="rounded-lg max-w-full h-auto mb-2"
+                            />
+                          )}
+                          {msg.text && (
+                            <p className="text-sm">{msg.text}</p>
+                          )}
+                          <p
+                            className={`text-xs mt-1 ${
+                              isOwnMessage
+                                ? "text-cyan-100"
+                                : "text-slate-400 dark:text-slate-500"
+                            }`}
+                          >
+                            {new Date(msg.createdAt).toLocaleTimeString(undefined, {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </p>
+                        </div>
                       </div>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
                 <div ref={messageEndRef} />
               </div>
@@ -707,6 +933,22 @@ function ChatWidget({ isFullScreen = false }) {
           )}
         </div>
       </div>
+      
+      {/* Modals */}
+      {showCreateGroupModal && (
+        <CreateGroupModal
+          isOpen={showCreateGroupModal}
+          onClose={() => setShowCreateGroupModal(false)}
+        />
+      )}
+      {showGroupSettingsModal && selectedGroup && (
+        <GroupSettingsModal
+          isOpen={showGroupSettingsModal}
+          onClose={() => setShowGroupSettingsModal(false)}
+          group={selectedGroup}
+        />
+      )}
+    </>
     );
   }
 
@@ -725,6 +967,7 @@ function ChatWidget({ isFullScreen = false }) {
           {/* Chat Icon Button */}
           <button
             onClick={handleOpenWidget}
+            data-chat-toggle
             className="group bg-gradient-to-br from-cyan-500 to-blue-600 text-white rounded-full p-4 shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-110 active:scale-95 relative"
             aria-label={labels.buttonTooltip}
             title={labels.buttonTooltip}

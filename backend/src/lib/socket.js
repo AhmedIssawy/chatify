@@ -196,6 +196,27 @@ io.on("connection", (socket) => {
     }
   });
 
+  // Handle user joining a group room
+  socket.on("joinGroup", (groupId) => {
+    socket.join(`group_${groupId}`);
+    console.log(`User ${socket.user.fullName} joined group ${groupId}`);
+  });
+
+  // Handle user leaving a group room
+  socket.on("leaveGroup", (groupId) => {
+    socket.leave(`group_${groupId}`);
+    console.log(`User ${socket.user.fullName} left group ${groupId}`);
+  });
+
+  // Handle typing in group
+  socket.on("groupTyping", ({ groupId, isTyping }) => {
+    socket.to(`group_${groupId}`).emit("groupUserTyping", {
+      userId,
+      userName: socket.user.fullName,
+      isTyping,
+    });
+  });
+
   // with socket.on we listen for events from clients
   socket.on("disconnect", () => {
     console.log("A user disconnected", socket.user.fullName);

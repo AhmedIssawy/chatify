@@ -11,6 +11,7 @@ import {
   deleteGroup,
   getGroupMessages,
   sendGroupMessage,
+  deleteAllGroupMessages,
 } from "../controllers/group.controller.js";
 
 const router = express.Router();
@@ -21,6 +22,7 @@ router.get("/all", protectRoute, adminOnly, getAllGroups);
 router.patch("/:id/settings", protectRoute, adminOnly, updateGroupSettings);
 router.post("/:id/members", protectRoute, adminOnly, addGroupMembers);
 router.delete("/:id/members/:memberId", protectRoute, adminOnly, removeGroupMember);
+router.delete("/:id/messages", protectRoute, adminOnly, deleteAllGroupMessages);
 router.delete("/:id", protectRoute, adminOnly, deleteGroup);
 
 // Member routes (members can view and send messages)

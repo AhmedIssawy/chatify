@@ -112,6 +112,18 @@ export const useGroupStore = create((set, get) => ({
     }
   },
 
+  // Delete all messages in a group (admin only)
+  deleteAllGroupMessages: async (groupId) => {
+    try {
+      await axiosInstance.delete(`/groups/${groupId}/messages`);
+      set({ groupMessages: [] });
+      toast.success("All messages deleted successfully!");
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Failed to delete messages");
+      throw error;
+    }
+  },
+
   // Select a group
   setSelectedGroup: (group) => {
     set({ selectedGroup: group });
@@ -205,6 +217,15 @@ export const useGroupStore = create((set, get) => ({
       }));
       toast.info("A group has been deleted");
     });
+
+    // Listen for messages cleared
+    socket.on("groupMessagesCleared", ({ groupId }) => {
+      const { selectedGroup } = get();
+      if (selectedGroup?._id === groupId) {
+        set({ groupMessages: [] });
+        toast.info("All messages have been cleared by admin");
+      }
+    });
   },
 
   // Unsubscribe from group messages
@@ -220,6 +241,7 @@ export const useGroupStore = create((set, get) => ({
       socket.off("addedToGroup");
       socket.off("removedFromGroup");
       socket.off("groupDeleted");
+      socket.off("groupMessagesCleared");
     }
   },
 }));

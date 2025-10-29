@@ -401,3 +401,34 @@ export const sendGroupMessage = async (req, res) => {
     res.status(500).json({ message: "Internal server error" });
   }
 };
+
+// Delete all messages in a group (Admin only)
+export const deleteAllGroupMessages = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const group = await Group.findById(id).populate("members", "_id");
+    if (!group) {
+      return res.status(404).json({ message: "Group not found" });
+    }
+
+    // Delete all messages for this group
+    const result = await GroupMessage.deleteMany({ groupId: id });
+
+    // Notify all members to clear their messages
+    group.members.forEach((member) => {
+      const memberSocketId = getReceiverSocketId(member._id.toString());
+      if (memberSocketId) {
+        io.to(memberSocketId).emit("groupMessagesCleared", { groupId: id });
+      }
+    });
+
+    res.status(200).json({ 
+      message: "All group messages deleted successfully",
+      deletedCount: result.deletedCount 
+    });
+  } catch (error) {
+    console.error("Error deleting group messages:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};

@@ -6,7 +6,7 @@ import { axiosInstance } from "../lib/axios";
 import toast from "react-hot-toast";
 import EncryptionSetup from "./EncryptionSetup";
 
-function ChatWidget() {
+function ChatWidget({ isFullScreen = false }) {
   const { authUser, onlineUsers, isEncryptionEnabled, encryptionKeys, hasEncryptionKey, toggleEncryption } = useAuthStore();
   const {
     selectedUser,
@@ -18,8 +18,8 @@ function ChatWidget() {
     unsubscribeFromMessages,
   } = useChatStore();
 
-  const [isOpen, setIsOpen] = useState(false);
-  const [showUserList, setShowUserList] = useState(false);
+  const [isOpen, setIsOpen] = useState(isFullScreen); // Auto-open for full screen mode
+  const [showUserList, setShowUserList] = useState(isFullScreen); // Show user list by default in full screen
   const [users, setUsers] = useState([]);
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
   const [messageText, setMessageText] = useState("");
@@ -33,6 +33,13 @@ function ChatWidget() {
 
   // Role-based labels
   const isAdmin = authUser?.isAdmin;
+  
+  // Load users immediately for full screen admin mode
+  useEffect(() => {
+    if (isFullScreen && isAdmin) {
+      fetchUsers();
+    }
+  }, [isFullScreen, isAdmin]);
   const labels = {
     promptBubble: isAdmin
       ? "Want to reach out to users? Click the chat button to start a conversation."
@@ -377,6 +384,243 @@ function ChatWidget() {
     };
   }, [selectedUser, unsubscribeFromMessages]);
 
+  // Full screen mode for admin (WhatsApp-style)
+  if (isFullScreen) {
+    return (
+      <div className="flex w-full h-full">
+        {/* Left Sidebar - User List (WhatsApp style) */}
+        <div className={`w-full md:w-96 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 flex flex-col ${selectedUser ? 'hidden md:flex' : 'flex'}`}>
+          {/* Sidebar Header */}
+          <div className="p-4 border-b border-slate-200 dark:border-slate-700">
+            <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">
+              Chats
+            </h2>
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              Select a user to start chatting
+            </p>
+          </div>
+
+          {/* User List */}
+          <div className="flex-1 overflow-y-auto">
+            {isLoadingUsers ? (
+              <div className="flex justify-center items-center h-32">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-500"></div>
+              </div>
+            ) : users.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-32 text-slate-500 dark:text-slate-400">
+                <p className="text-sm">{labels.emptyList}</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-100 dark:divide-slate-700">
+                {users.map((user) => (
+                  <button
+                    key={user._id}
+                    onClick={() => handleSelectUser(user)}
+                    className={`w-full p-4 flex items-center gap-3 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors text-left ${
+                      selectedUser?._id === user._id ? 'bg-slate-100 dark:bg-slate-700' : ''
+                    }`}
+                  >
+                    <div className="relative">
+                      <img
+                        src={user.profilePic || "/avatar.png"}
+                        alt={user.fullName}
+                        className="w-12 h-12 rounded-full object-cover"
+                      />
+                      {onlineUsers.includes(user._id) && (
+                        <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-white dark:border-slate-800"></div>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-slate-800 dark:text-slate-100 truncate">
+                        {user.fullName}
+                      </p>
+                      <p className="text-sm text-slate-500 dark:text-slate-400 truncate">
+                        {user.email}
+                      </p>
+                    </div>
+                    {onlineUsers.includes(user._id) && (
+                      <span className="text-xs text-green-600 dark:text-green-400 font-medium">
+                        Online
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Right Side - Chat Area */}
+        <div className={`flex-1 flex flex-col bg-slate-50 dark:bg-slate-900 ${!selectedUser ? 'hidden md:flex' : 'flex'}`}>
+          {selectedUser ? (
+            <>
+              {/* Chat Header */}
+              <div className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 p-4 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => setSelectedUser(null)}
+                    className="md:hidden hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full p-2 transition-colors"
+                    title="Back to list"
+                  >
+                    <X className="w-5 h-5 rotate-45" />
+                  </button>
+                  <img
+                    src={selectedUser.profilePic || "/avatar.png"}
+                    alt={selectedUser.fullName}
+                    className="w-10 h-10 rounded-full object-cover"
+                  />
+                  <div>
+                    <h3 className="font-semibold text-slate-800 dark:text-slate-100">
+                      {selectedUser.fullName}
+                    </h3>
+                    <div className="flex items-center gap-2">
+                      <div
+                        className={`w-2 h-2 rounded-full ${
+                          onlineUsers.includes(selectedUser._id) ? "bg-green-500" : "bg-gray-400"
+                        }`}
+                      />
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        {onlineUsers.includes(selectedUser._id) ? "Online" : "Offline"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {isAdmin && selectedUser && (
+                    <button
+                      onClick={handleAdminLeaveChat}
+                      className="hover:bg-red-100 dark:hover:bg-red-500/20 rounded-full p-2 transition-colors text-red-600"
+                      title="Delete this chat permanently"
+                    >
+                      <Trash2 className="w-5 h-5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Messages Area */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                {messages.length === 0 ? (
+                  <div className="text-center py-12">
+                    <div className="text-4xl mb-3">👋</div>
+                    <p className="text-slate-700 dark:text-slate-300 font-semibold mb-2">
+                      No messages yet
+                    </p>
+                    <p className="text-slate-500 dark:text-slate-400 text-sm">
+                      Start a conversation with {selectedUser.fullName}
+                    </p>
+                  </div>
+                ) : (
+                  messages.map((msg) => (
+                    <div
+                      key={msg._id}
+                      className={`flex ${
+                        msg.senderId === authUser._id ? "justify-end" : "justify-start"
+                      }`}
+                    >
+                      <div
+                        className={`max-w-[75%] rounded-2xl px-4 py-2 ${
+                          msg.senderId === authUser._id
+                            ? "bg-gradient-to-br from-cyan-500 to-blue-600 text-white rounded-br-sm"
+                            : "bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-bl-sm shadow-sm"
+                        }`}
+                      >
+                        {msg.image && (
+                          <img
+                            src={msg.image}
+                            alt="Shared"
+                            className="rounded-lg max-w-full h-auto mb-2"
+                          />
+                        )}
+                        {msg.text && (
+                          <p className="text-sm">{msg.text}</p>
+                        )}
+                        <p
+                          className={`text-xs mt-1 ${
+                            msg.senderId === authUser._id
+                              ? "text-cyan-100"
+                              : "text-slate-400 dark:text-slate-500"
+                          }`}
+                        >
+                          {new Date(msg.createdAt).toLocaleTimeString(undefined, {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </p>
+                      </div>
+                    </div>
+                  ))
+                )}
+                <div ref={messageEndRef} />
+              </div>
+
+              {/* Image Preview */}
+              {imagePreview && (
+                <div className="px-4 py-2 bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700">
+                  <div className="relative inline-block">
+                    <img src={imagePreview} alt="Preview" className="h-20 rounded-lg" />
+                    <button
+                      onClick={() => setImagePreview(null)}
+                      className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600 transition-colors"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Input Area */}
+              <form
+                onSubmit={handleSendMessage}
+                className="p-4 bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700"
+              >
+                <div className="flex items-end gap-2">
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleImageChange}
+                    accept="image/*"
+                    className="hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="p-2 text-slate-400 hover:text-cyan-500 transition-colors"
+                  >
+                    <Paperclip className="w-5 h-5" />
+                  </button>
+                  <input
+                    type="text"
+                    ref={messageInputRef}
+                    value={messageText}
+                    onChange={(e) => setMessageText(e.target.value)}
+                    placeholder="Type a message..."
+                    autoFocus
+                    className="flex-1 px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-full focus:outline-none focus:ring-2 focus:ring-cyan-500 transition-all"
+                  />
+                  <button
+                    type="submit"
+                    disabled={!messageText.trim() && !imagePreview}
+                    className="p-2 bg-gradient-to-br from-cyan-500 to-blue-600 text-white rounded-full hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <Send className="w-5 h-5" />
+                  </button>
+                </div>
+              </form>
+            </>
+          ) : (
+            <div className="flex-1 flex flex-col items-center justify-center text-slate-400">
+              <MessageCircle className="w-24 h-24 mb-4 opacity-20" />
+              <p className="text-lg font-medium">Select a chat to start messaging</p>
+              <p className="text-sm">Choose from your available conversations</p>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // Widget mode for non-admin users (original floating widget)
   return (
     <>
       {/* Floating Chat Button with Prompt */}

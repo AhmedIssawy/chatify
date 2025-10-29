@@ -33,6 +33,69 @@ function HomePage() {
     }
   };
 
+  // Admin sees WhatsApp-style layout, users see regular layout
+  if (authUser?.isAdmin) {
+    return (
+      <div className="h-screen flex flex-col bg-slate-100 dark:bg-slate-900">
+        {/* Top Header Bar */}
+        <div className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 shadow-sm z-10">
+          <div className="px-4 py-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <img
+                  src={authUser?.profilePic || "/avatar.png"}
+                  alt={authUser?.fullName}
+                  className="w-10 h-10 rounded-full object-cover border-2 border-cyan-500"
+                />
+                <div>
+                  <h2 className="text-base font-semibold text-slate-800 dark:text-slate-100">
+                    {authUser?.fullName}
+                  </h2>
+                  <p className="text-xs text-slate-600 dark:text-slate-400">
+                    Admin Panel
+                  </p>
+                </div>
+              </div>
+              
+              {/* Right side: Actions */}
+              <div className="flex items-center gap-2">
+                {/* Profile Update Button */}
+                <button
+                  onClick={() => setIsProfileModalOpen(true)}
+                  className="p-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors"
+                  title="Update Profile"
+                >
+                  <Settings className="w-5 h-5" />
+                </button>
+                
+                {/* Logout Button */}
+                <button
+                  onClick={handleLogout}
+                  className="p-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
+                  title="Logout"
+                >
+                  <LogOut className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* WhatsApp-style Chat Layout */}
+        <div className="flex-1 flex overflow-hidden">
+          <ChatWidget isFullScreen={true} />
+        </div>
+
+        {/* Profile Modal */}
+        <ProfileModal 
+          isOpen={isProfileModalOpen} 
+          onClose={() => setIsProfileModalOpen(false)} 
+        />
+      </div>
+    );
+  }
+
+  // Regular user view (original layout)
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
       {/* User Info Bar */}
@@ -55,14 +118,8 @@ function HomePage() {
               </div>
             </div>
             
-            {/* Right side: Admin Badge + Actions */}
+            {/* Right side: Actions */}
             <div className="flex items-center gap-3">
-              {authUser?.isAdmin && (
-                <div className="bg-gradient-to-r from-cyan-500 to-blue-600 text-white px-4 py-2 rounded-full text-sm font-semibold shadow-lg">
-                  Admin
-                </div>
-              )}
-              
               {/* Profile Update Button */}
               <button
                 onClick={() => setIsProfileModalOpen(true)}
@@ -99,8 +156,8 @@ function HomePage() {
         </div>
       </div>
 
-      {/* Chat Widget - Always visible */}
-      <ChatWidget />
+      {/* Chat Widget - Bottom right for users */}
+      <ChatWidget isFullScreen={false} />
 
       {/* Profile Modal */}
       <ProfileModal 
